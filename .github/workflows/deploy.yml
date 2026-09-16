@@ -1,0 +1,46 @@
+name: Deploy Blazor WASM to GitHub Pages
+
+on:
+  push:
+    branches: [ "main" ]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+  pages: write
+  id-token: write
+
+concurrency:
+  group: "pages"
+  cancel-in-progress: true
+
+jobs:
+  build-and-deploy:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup .NET
+        uses: actions/setup-dotnet@v4
+        with:
+          dotnet-version: '8.0.x'
+
+      - name: Publish Blazor app
+        run: dotnet publish BlazorApp/LectureSync.Client/LectureSync.Client.csproj -c Release -o publish_output
+
+      - name: Fix base href for GitHub Pages (project site under /repo-name/)
+        run: |
+          sed -i "s|<base href=\"/\" />|<base href=\"/${{ github.event.repository.name }}/\" />|g" publish_output/wwwroot/index.html
+
+      - name: Add .nojekyll (so GitHub Pages serves _framework files as-is)
+        run: touch publish_output/wwwroot/.nojekyll
+
+      - name: Upload artifact
+        uses: actions/upload-pages-artifact@v3
+        with:
+          path: publish_output/wwwroot
+
+      - name: Deploy to GitHub Pages
+        id: deployment
+        uses: actions/deploy-pages@v4

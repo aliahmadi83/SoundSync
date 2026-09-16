@@ -1,0 +1,164 @@
+body {
+    font-family: "Vazirmatn", Tahoma, "Segoe UI", sans-serif;
+    background: #f5f6fa;
+    margin: 0;
+    padding: 24px;
+    color: #222;
+}
+
+.layout {
+    max-width: 1100px;
+    margin: 0 auto;
+    display: flex;
+    gap: 20px;
+    align-items: flex-start;
+}
+
+/* در RTL، اولین آیتم فلکس (sidebar) سمت راست قرار می‌گیرد */
+.sidebar {
+    width: 280px;
+    flex-shrink: 0;
+    background: #fff;
+    padding: 18px;
+    border-radius: 10px;
+    box-shadow: 0 1px 4px rgba(0, 0, 0, .08);
+}
+
+.sidebar h3 {
+    margin-top: 0;
+}
+
+.main-content {
+    flex: 1;
+    min-width: 0;
+}
+
+.main-content h2 {
+    margin-top: 0;
+    margin-bottom: 18px;
+}
+
+.upload-box {
+    margin-bottom: 14px;
+}
+
+.upload-box label {
+    display: block;
+    margin-bottom: 6px;
+    font-weight: 600;
+    font-size: 13px;
+}
+
+.upload-box input[type="file"] {
+    width: 100%;
+    font-size: 13px;
+}
+
+.status {
+    padding: 8px 10px;
+    border-radius: 8px;
+    background: #e6f4ea;
+    color: #1e6b34;
+    margin-bottom: 14px;
+    font-size: 13px;
+}
+
+.status.error {
+    background: #fdecea;
+    color: #a13a2e;
+}
+
+.lecture-list {
+    list-style: none;
+    margin: 0;
+    padding: 0;
+    border-top: 1px solid #eee;
+}
+
+.lecture-list li {
+    padding: 10px 8px;
+    border-bottom: 1px solid #eee;
+    cursor: pointer;
+    border-radius: 6px;
+    font-size: 14px;
+    transition: background .15s ease;
+}
+
+.lecture-list li:hover {
+    background: #f0f2fa;
+}
+
+.lecture-list li.active {
+    background: #4c6ef5;
+    color: #fff;
+    font-weight: 600;
+}
+
+.hint {
+    color: #888;
+    font-size: 14px;
+}
+
+.player-wrap {
+    margin-bottom: 22px;
+}
+
+#audioPlayer {
+    width: 100%;
+    display: block;
+    border-radius: 8px;
+}
+
+.transcript {
+    background: #fff;
+    padding: 24px;
+    border-radius: 10px;
+    line-height: 2.6;
+    font-size: 19px;
+    box-shadow: 0 1px 4px rgba(0, 0, 0, .08);
+    max-height: 600px;
+    overflow-y: auto;
+}
+
+.sentence {
+    cursor: pointer;
+    padding: 2px 4px;
+    border-radius: 5px;
+    transition: background .2s ease;
+}
+
+.sentence:hover {
+    background: #eef2ff;
+}
+
+.sentence.active {
+    background: #ffd54f;
+    font-weight: 600;
+}
+
+#blazor-error-ui {
+    display: none;
+    background: #fdecea;
+    color: #a13a2e;
+    position: fixed;
+    bottom: 0;
+    left: 0;
+    right: 0;
+    padding: 12px;
+    text-align: center;
+}
+
+#blazor-error-ui .dismiss {
+    cursor: pointer;
+    margin-inline-start: 12px;
+}
+
+@media (max-width: 720px) {
+    .layout {
+        flex-direction: column;
+    }
+
+    .sidebar {
+        width: 100%;
+    }
+}
