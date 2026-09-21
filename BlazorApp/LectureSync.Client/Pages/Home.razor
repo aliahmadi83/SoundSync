@@ -91,3 +91,179 @@
     protected override async Task OnAfterRenderAsync(bool firstRender)
     {
         if (firstRender)
+        {
+            await JS.InvokeVoidAsync("lectureSync.initTimeUpdate", "audioPlayer", dotNetRef);
+
+            // اول سخنرانی‌های ذخیره‌شده؛ اگر نبود، فایل نمونه
+            var restored = await RestoreSavedLectures();
+            if (!restored) await TryLoadSampleLecture();
+        }
+    }
+
+    private async Task<bool> RestoreSavedLectures()
+    {
+        try
+        {
+            var items = await JS.InvokeAsync<List<FolderLecture>>("lectureSync.loadSaved");
+            var (loaded, _) = BuildLectures(items);
+            if (loaded.Count == 0) return false;
+
+            lectures = loaded;
+            SetStatus($"{loaded.Count} سخنرانی از حافظه‌ی قبلی بارگذاری شد.", false);
+            StateHasChanged();
+            return true;
+        }
+        catch
+        {
+            return false;
+        }
+    }
+
+    private async Task TryLoadSampleLecture()
+    {
+        try
+        {
+            var text = await Http.GetStringAsync("sample/lecture.txt");
+            var sampleSegments = ParseTimedText(text);
+            if (sampleSegments.Count > 0)
+            {
+                var lecture = new Lecture(nextLectureId++, "سخنرانی نمونه", "sample/lecture.mp3", sampleSegments);
+                lectures.Add(lecture);
+                await SelectLecture(lecture);
+                StateHasChanged();
+            }
+        }
+        catch
+        {
+            // فایل نمونه موجود نیست؛ مشکلی نیست
+        }
+    }
+
+    private (List<Lecture> loaded, int skipped) BuildLectures(List<FolderLecture> items)
+    {
+        var loaded = new List<Lecture>();
+        int skipped = 0;
+
+        foreach (var item in items)
+        {
+            var segs = ParseTimedText(item.Text ?? "");
+            if (segs.Count == 0 || string.IsNullOrEmpty(item.AudioUrl))
+            {
+                skipped++;
+                continue;
+            }
+            loaded.Add(new Lecture(nextLectureId++, item.Title, item.AudioUrl, segs));
+        }
+        return (loaded, skipped);
+    }
+
+    // --- انتخاب پوشه‌ی اصلی ---
+    private async Task OnFolderSelected(InputFileChangeEventArgs e)
+    {
+        isLoading = true;
+        SetStatus("در حال خواندن و ذخیره‌ی پوشه‌ها...", false);
+        StateHasChanged();
+
+        try
+        {
+            var items = await JS.InvokeAsync<List<FolderLecture>>("lectureSync.readFolder", "folderInput");
+            var (loaded, skipped) = BuildLectures(items);
+
+            if (loaded.Count == 0)
+            {
+                SetStatus("در این پوشه هیچ سخنرانی معتبری (mp3 + txt زمان‌بندی‌شده) پیدا نشد. لیست قبلی دست نخورد.", true);
+                return;
+            }
+
+            // کل لیست قبلی جایگزین می‌شود
+            lectures = loaded;
+            segments = new();
+            activeLectureId = null;
+            activeId = -1;
+
+            SetStatus($"{loaded.Count} سخنرانی بارگذاری و ذخیره شد" +
+                      (skipped > 0 ? $" ({skipped} پوشه نامعتبر رد شد)." : "."), false);
+        }
+        catch (Exception ex)
+        {
+            SetStatus("خطا در خواندن پوشه: " + ex.Message, true);
+        }
+        finally
+        {
+            isLoading = false;
+        }
+    }
+
+    private async Task SelectLecture(Lecture lecture)
+    {
+        activeLectureId = lecture.Id;
+        segments = lecture.Segments;
+        activeId = -1;
+        await JS.InvokeVoidAsync("lectureSync.setAudioSrc", "audioPlayer", lecture.AudioUrl);
+    }
+
+    private static List<Segment> ParseTimedText(string text)
+    {
+        var result = new List<Segment>();
+        int id = 0;
+        foreach (var raw in text.Replace("\r\n", "\n").Split('\n'))
+        {
+            var line = raw.Trim().TrimStart('\uFEFF');
+            if (line.Length == 0) continue;
+            var m = LineRegex.Match(line);
+            if (!m.Success) continue;
+            result.Add(new Segment(id++,
+                ParseTimeToSeconds(m.Groups[1].Value),
+                ParseTimeToSeconds(m.Groups[2].Value),
+                m.Groups[3].Value.Trim()));
+        }
+        return result;
+    }
+
+    private static double ParseTimeToSeconds(string t)
+    {
+        double seconds = 0;
+        foreach (var part in t.Split(':')) seconds = seconds * 60 + int.Parse(part);
+        return seconds;
+    }
+
+    private async Task OnSegmentClick(Segment s)
+    {
+        await JS.InvokeVoidAsync("lectureSync.seekTo", "audioPlayer", s.Start, true);
+        activeId = s.Id;
+    }
+
+    [JSInvokable]
+    public void OnTimeUpdate(double currentTime)
+    {
+        var match = segments.LastOrDefault(s => s.Start <= currentTime);
+        var newId = match?.Id ?? -1;
+        if (newId != activeId)
+        {
+            activeId = newId;
+            InvokeAsync(StateHasChanged);
+            if (newId >= 0)
+            {
+                _ = JS.InvokeVoidAsync("lectureSync.scrollToActive");
+            }
+        }
+    }
+
+    private void SetStatus(string msg, bool error) { statusMessage = msg; isError = error; }
+
+    public async ValueTask DisposeAsync()
+    {
+        dotNetRef?.Dispose();
+        await Task.CompletedTask;
+    }
+
+    private record Segment(int Id, double Start, double End, string Text);
+    private record Lecture(int Id, string Title, string AudioUrl, List<Segment> Segments);
+
+    private class FolderLecture
+    {
+        public string Title { get; set; } = "";
+        public string? AudioUrl { get; set; }
+        public string? Text { get; set; }
+    }
+}
