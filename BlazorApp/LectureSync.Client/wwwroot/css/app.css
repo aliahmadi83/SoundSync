@@ -24,6 +24,19 @@ body {
     box-shadow: 0 1px 4px rgba(0, 0, 0, .08);
 }
 
+.folder-btn {
+    display: block;
+    text-align: center;
+    padding: 10px 12px;
+    background: #2f6fed;
+    color: #fff;
+    border-radius: 8px;
+    cursor: pointer;
+    font-weight: bold;
+}
+.folder-btn:hover { background: #2559c4; }
+.folder-btn.disabled { opacity: .6; pointer-events: none; }
+
 .sidebar h3 {
     margin-top: 0;
 }
