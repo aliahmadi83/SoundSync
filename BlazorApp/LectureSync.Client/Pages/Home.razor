@@ -114,56 +114,90 @@
             // فایل نمونه موجود نیست؛ مشکلی نیست
         }
     }
+protected override async Task OnAfterRenderAsync(bool firstRender)
+{
+    if (firstRender)
+    {
+        await JS.InvokeVoidAsync("lectureSync.initTimeUpdate", "audioPlayer", dotNetRef);
 
+        // اول سخنرانی‌های ذخیره‌شده؛ اگر نبود، فایل نمونه
+        var restored = await RestoreSavedLectures();
+        if (!restored) await TryLoadSampleLecture();
+    }
+}
+
+private async Task<bool> RestoreSavedLectures()
+{
+    try
+    {
+        var items = await JS.InvokeAsync<List<FolderLecture>>("lectureSync.loadSaved");
+        var (loaded, _) = BuildLectures(items);
+        if (loaded.Count == 0) return false;
+
+        lectures = loaded;
+        SetStatus($"{loaded.Count} سخنرانی از حافظه‌ی قبلی بارگذاری شد.", false);
+        StateHasChanged();
+        return true;
+    }
+    catch
+    {
+        return false;
+    }
+}
+
+private (List<Lecture> loaded, int skipped) BuildLectures(List<FolderLecture> items)
+{
+    var loaded = new List<Lecture>();
+    int skipped = 0;
+
+    foreach (var item in items)
+    {
+        var segs = ParseTimedText(item.Text ?? "");
+        if (segs.Count == 0 || string.IsNullOrEmpty(item.AudioUrl))
+        {
+            skipped++;
+            continue;
+        }
+        loaded.Add(new Lecture(nextLectureId++, item.Title, item.AudioUrl, segs));
+    }
+    return (loaded, skipped);
+}
     // --- انتخاب پوشه‌ی اصلی ---
     private async Task OnFolderSelected(InputFileChangeEventArgs e)
+{
+    isLoading = true;
+    SetStatus("در حال خواندن و ذخیره‌ی پوشه‌ها...", false);
+    StateHasChanged();
+
+    try
     {
-        isLoading = true;
-        SetStatus("در حال خواندن پوشه‌ها...", false);
-        StateHasChanged();
+        var items = await JS.InvokeAsync<List<FolderLecture>>("lectureSync.readFolder", "folderInput");
+        var (loaded, skipped) = BuildLectures(items);
 
-        try
+        if (loaded.Count == 0)
         {
-            var items = await JS.InvokeAsync<List<FolderLecture>>("lectureSync.readFolder", "folderInput");
-
-            var loaded = new List<Lecture>();
-            int skipped = 0;
-
-            foreach (var item in items)
-            {
-                var segs = ParseTimedText(item.Text ?? "");
-                if (segs.Count == 0 || string.IsNullOrEmpty(item.AudioUrl))
-                {
-                    skipped++;
-                    continue;
-                }
-                loaded.Add(new Lecture(nextLectureId++, item.Title, item.AudioUrl, segs));
-            }
-
-            if (loaded.Count == 0)
-            {
-                SetStatus("در این پوشه هیچ سخنرانی معتبری (mp3 + txt زمان‌بندی‌شده) پیدا نشد.", true);
-                return;
-            }
-
-            lectures = loaded;
-            segments = new();
-            activeLectureId = null;
-            activeId = -1;
-
-            SetStatus($"{loaded.Count} سخنرانی بارگذاری شد" +
-                      (skipped > 0 ? $" ({skipped} پوشه نامعتبر رد شد)." : "."), false);
+            SetStatus("در این پوشه هیچ سخنرانی معتبری (mp3 + txt زمان‌بندی‌شده) پیدا نشد. لیست قبلی دست نخورد.", true);
+            return;
         }
-        catch (Exception ex)
-        {
-            SetStatus("خطا در خواندن پوشه: " + ex.Message, true);
-        }
-        finally
-        {
-            isLoading = false;
-        }
+
+        // کل لیست قبلی جایگزین می‌شود
+        lectures = loaded;
+        segments = new();
+        activeLectureId = null;
+        activeId = -1;
+
+        SetStatus($"{loaded.Count} سخنرانی بارگذاری و ذخیره شد" +
+                  (skipped > 0 ? $" ({skipped} پوشه نامعتبر رد شد)." : "."), false);
     }
-
+    catch (Exception ex)
+    {
+        SetStatus("خطا در خواندن پوشه: " + ex.Message, true);
+    }
+    finally
+    {
+        isLoading = false;
+    }
+}
     private async Task SelectLecture(Lecture lecture)
     {
         activeLectureId = lecture.Id;
