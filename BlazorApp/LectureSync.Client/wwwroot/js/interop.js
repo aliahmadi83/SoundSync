@@ -1,88 +1,154 @@
 // interop.js — پل بین Blazor WebAssembly و پخش‌کننده‌ی صوت
 
-window.lectureSync = {
-    dotNetRef: null,
+(function () {
+    const DB_NAME = 'lectureSyncDb';
+    const STORE = 'lectures';
+    let objectUrls = [];
 
-    // از فایل انتخاب‌شده در یک <input type=file> یک URL موقت می‌سازد
-    // (برای نگه‌داشتن چند فایل صوتی هم‌زمان در حافظه، برای هر سخنرانی)
-    createObjectUrl: function (inputElementId) {
-        const input = document.getElementById(inputElementId);
-        if (!input || !input.files || !input.files[0]) return null;
-        return URL.createObjectURL(input.files[0]);
-
-
-        readFolder: async (inputId) => {
-    const input = document.getElementById(inputId);
-    const files = Array.from(input.files || []);
-
-    // گروه‌بندی فایل‌ها بر اساس پوشه
-    const groups = new Map();
-    for (const f of files) {
-        const parts = (f.webkitRelativePath || f.name).split('/');
-        if (parts.length < 2) continue;
-        const dir = parts.slice(0, -1).join('/');
-        if (!groups.has(dir)) groups.set(dir, { audio: null, txt: null });
-        const g = groups.get(dir);
-        const name = f.name.toLowerCase();
-        if (name.endsWith('.mp3') && !g.audio) g.audio = f;
-        else if (name.endsWith('.txt') && !g.txt) g.txt = f;
-    }
-
-    const result = [];
-    for (const [dir, g] of groups) {
-        if (!g.audio || !g.txt) continue;
-        result.push({
-            title: dir.split('/').pop(),
-            audioUrl: URL.createObjectURL(g.audio),
-            text: await g.txt.text()
+    function openDb() {
+        return new Promise((resolve, reject) => {
+            const req = indexedDB.open(DB_NAME, 1);
+            req.onupgradeneeded = () => {
+                req.result.createObjectStore(STORE, { keyPath: 'dir' });
+            };
+            req.onsuccess = () => resolve(req.result);
+            req.onerror = () => reject(req.error);
         });
     }
 
-    // مرتب‌سازی طبیعی (سخنرانی 2 قبل از سخنرانی 10)
-    result.sort((a, b) => a.title.localeCompare(b.title, 'fa', { numeric: true }));
+    // همه‌ی رکوردهای قبلی را پاک می‌کند و رکوردهای جدید را می‌نویسد (در یک تراکنش)
+    async function replaceAll(records) {
+        const db = await openDb();
+        await new Promise((resolve, reject) => {
+            const tx = db.transaction(STORE, 'readwrite');
+            const store = tx.objectStore(STORE);
+            store.clear();
+            for (const r of records) store.put(r);
+            tx.oncomplete = () => resolve();
+            tx.onerror = () => reject(tx.error);
+            tx.onabort = () => reject(tx.error);
+        });
+        db.close();
+    }
 
-    input.value = ""; // اجازه‌ی انتخاب دوباره‌ی همان پوشه
-    return result;
-},
-    },
+    async function getAll() {
+        const db = await openDb();
+        const records = await new Promise((resolve, reject) => {
+            const req = db.transaction(STORE, 'readonly').objectStore(STORE).getAll();
+            req.onsuccess = () => resolve(req.result);
+            req.onerror = () => reject(req.error);
+        });
+        db.close();
+        return records;
+    }
 
-    // آدرس صوتی سخنرانی‌ی انتخاب‌شده از لیست را به پخش‌کننده وصل می‌کند
-    setAudioSrc: function (mediaElementId, url) {
-        const el = document.getElementById(mediaElementId);
-        if (!el || !url) return;
-        el.src = url;
-        el.load();
-    },
+    // رکوردها را مرتب می‌کند و برای هرکدام یک URL موقت صوتی می‌سازد
+    function toItems(records) {
+        objectUrls.forEach(u => URL.revokeObjectURL(u));
+        objectUrls = [];
 
-    // شنونده‌ی رویداد timeupdate را (فقط یک‌بار) وصل می‌کند تا هر بار زمان پخش تغییر کرد،
-    // متد OnTimeUpdate در سمت C# صدا زده شود
-    initTimeUpdate: function (mediaElementId, dotNetRef) {
-        const el = document.getElementById(mediaElementId);
-        if (!el) return;
-        this.dotNetRef = dotNetRef;
-        el.addEventListener('timeupdate', () => {
-            if (this.dotNetRef) {
-                this.dotNetRef.invokeMethodAsync('OnTimeUpdate', el.currentTime);
+        records.sort((a, b) => a.title.localeCompare(b.title, 'fa', { numeric: true }));
+
+        return records.map(r => {
+            const url = URL.createObjectURL(r.audio);
+            objectUrls.push(url);
+            return { title: r.title, audioUrl: url, text: r.text };
+        });
+    }
+
+    window.lectureSync = {
+        dotNetRef: null,
+
+        // پوشه‌ی اصلی انتخاب‌شده را می‌خواند، در IndexedDB ذخیره می‌کند (جایگزین قبلی‌ها)
+        readFolder: async function (inputId) {
+            const input = document.getElementById(inputId);
+            const files = Array.from((input && input.files) || []);
+
+            // گروه‌بندی فایل‌ها بر اساس زیرپوشه
+            const groups = new Map();
+            for (const f of files) {
+                const parts = (f.webkitRelativePath || f.name).split('/');
+                if (parts.length < 2) continue;
+                const dir = parts.slice(0, -1).join('/');
+                if (!groups.has(dir)) groups.set(dir, { audio: null, txt: null });
+                const g = groups.get(dir);
+                const name = f.name.toLowerCase();
+                if (name.endsWith('.mp3') && !g.audio) g.audio = f;
+                else if (name.endsWith('.txt') && !g.txt) g.txt = f;
             }
-        });
-    },
 
-    // با کلیک روی یک بخش از متن: پخش‌کننده را به ابتدای آن بخش می‌برد.
-    // اگر autoplay=true باشد، پخش ادامه پیدا می‌کند (متوقف نمی‌شود).
-    seekTo: function (mediaElementId, seconds, autoplay) {
-        const el = document.getElementById(mediaElementId);
-        if (!el) return;
-        el.currentTime = seconds;
-        if (autoplay) {
-            el.play();
-        }
-    },
+            const records = [];
+            for (const [dir, g] of groups) {
+                if (!g.audio || !g.txt) continue;
+                records.push({
+                    dir: dir,
+                    title: dir.split('/').pop(),
+                    audio: g.audio,
+                    text: await g.txt.text()
+                });
+            }
 
-    // بخش فعال را به‌آرامی در دید کاربر قرار می‌دهد
-    scrollToActive: function () {
-        const el = document.querySelector('.sentence.active');
-        if (el) {
-            el.scrollIntoView({ behavior: 'smooth', block: 'center' });
+            // اگر چیزی پیدا نشد، لیست قبلی دست نخورد
+            if (records.length === 0) {
+                if (input) input.value = "";
+                return [];
+            }
+
+            try {
+                if (navigator.storage && navigator.storage.persist) {
+                    await navigator.storage.persist();
+                }
+                await replaceAll(records);
+            } catch (e) {
+                console.warn('ذخیره در IndexedDB ناموفق بود:', e);
+            }
+
+            if (input) input.value = ""; // اجازه‌ی انتخاب دوباره‌ی همان پوشه
+            return toItems(records);
+        },
+
+        // سخنرانی‌های ذخیره‌شده‌ی قبلی را برمی‌گرداند
+        loadSaved: async function () {
+            try {
+                return toItems(await getAll());
+            } catch (e) {
+                console.warn('خواندن از IndexedDB ناموفق بود:', e);
+                return [];
+            }
+        },
+
+        setAudioSrc: function (mediaElementId, url) {
+            const el = document.getElementById(mediaElementId);
+            if (!el || !url) return;
+            el.src = url;
+            el.load();
+        },
+
+        initTimeUpdate: function (mediaElementId, dotNetRef) {
+            const el = document.getElementById(mediaElementId);
+            if (!el) return;
+            window.lectureSync.dotNetRef = dotNetRef;
+            el.addEventListener('timeupdate', () => {
+                if (window.lectureSync.dotNetRef) {
+                    window.lectureSync.dotNetRef.invokeMethodAsync('OnTimeUpdate', el.currentTime);
+                }
+            });
+        },
+
+        seekTo: function (mediaElementId, seconds, autoplay) {
+            const el = document.getElementById(mediaElementId);
+            if (!el) return;
+            el.currentTime = seconds;
+            if (autoplay) {
+                el.play();
+            }
+        },
+
+        scrollToActive: function () {
+            const el = document.querySelector('.sentence.active');
+            if (el) {
+                el.scrollIntoView({ behavior: 'smooth', block: 'center' });
+            }
         }
-    }
-};
+    };
+})();
