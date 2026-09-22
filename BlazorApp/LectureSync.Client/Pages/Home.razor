@@ -158,7 +158,7 @@
     }
 
     // --- انتخاب پوشه‌ی اصلی ---
-    private async Task OnFolderSelected(InputFileChangeEventArgs e)
+       private async Task OnFolderSelected(InputFileChangeEventArgs e)
     {
         isLoading = true;
         SetStatus("در حال خواندن و ذخیره‌ی پوشه‌ها...", false);
@@ -166,16 +166,19 @@
 
         try
         {
-            var items = await JS.InvokeAsync<List<FolderLecture>>("lectureSync.readFolder", "folderInput");
-            var (loaded, skipped) = BuildLectures(items);
+            var result = await JS.InvokeAsync<FolderResult>("lectureSync.readFolder", "folderInput");
+            var (loaded, skipped) = BuildLectures(result.Items);
 
             if (loaded.Count == 0)
             {
-                SetStatus("در این پوشه هیچ سخنرانی معتبری (mp3 + txt زمان‌بندی‌شده) پیدا نشد. لیست قبلی دست نخورد.", true);
+                var st = result.Stats;
+                var sample = (st.Sample ?? "").Replace("\n", " ").Replace("\r", " ");
+                SetStatus($"سخنرانی معتبری پیدا نشد. تعداد فایل‌ها: {st.TotalFiles}، زیرپوشه‌ها: {st.Dirs}، " +
+                          $"پوشه‌های دارای صوت: {st.WithAudio}، دارای txt: {st.WithText}. " +
+                          $"ابتدای متن اولین txt: «{sample}»", true);
                 return;
             }
 
-            // کل لیست قبلی جایگزین می‌شود
             lectures = loaded;
             segments = new();
             activeLectureId = null;
@@ -260,10 +263,25 @@
     private record Segment(int Id, double Start, double End, string Text);
     private record Lecture(int Id, string Title, string AudioUrl, List<Segment> Segments);
 
-    private class FolderLecture
+       private class FolderLecture
     {
         public string Title { get; set; } = "";
         public string? AudioUrl { get; set; }
         public string? Text { get; set; }
+    }
+
+    private class FolderStats
+    {
+        public int TotalFiles { get; set; }
+        public int Dirs { get; set; }
+        public int WithAudio { get; set; }
+        public int WithText { get; set; }
+        public string? Sample { get; set; }
+    }
+
+    private class FolderResult
+    {
+        public List<FolderLecture> Items { get; set; } = new();
+        public FolderStats Stats { get; set; } = new();
     }
 }
