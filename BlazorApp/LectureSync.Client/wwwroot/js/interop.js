@@ -16,7 +16,6 @@
         });
     }
 
-    // همه‌ی رکوردهای قبلی را پاک می‌کند و رکوردهای جدید را می‌نویسد (در یک تراکنش)
     async function replaceAll(records) {
         const db = await openDb();
         await new Promise((resolve, reject) => {
@@ -42,7 +41,6 @@
         return records;
     }
 
-    // رکوردها را مرتب می‌کند و برای هرکدام یک URL موقت صوتی می‌سازد
     function toItems(records) {
         objectUrls.forEach(u => URL.revokeObjectURL(u));
         objectUrls = [];
@@ -54,7 +52,8 @@
             objectUrls.push(url);
             return { title: r.title, audioUrl: url, text: r.text };
         });
-            // خواندن txt با تشخیص انکدینگ (UTF-8، UTF-16، ویندوز-۱۲۵۶)
+    }
+
     async function decodeText(file) {
         const buf = await file.arrayBuffer();
         const b = new Uint8Array(buf);
@@ -66,13 +65,11 @@
         }
         return s;
     }
-    }
 
     window.lectureSync = {
         dotNetRef: null,
 
-        // پوشه‌ی اصلی انتخاب‌شده را می‌خواند، در IndexedDB ذخیره می‌کند (جایگزین قبلی‌ها)
-               readFolder: async function (inputId) {
+        readFolder: async function (inputId) {
             const input = document.getElementById(inputId);
             const files = Array.from((input && input.files) || []);
 
@@ -99,7 +96,6 @@
                 records.push({ dir: dir, title: dir.split('/').pop(), audio: g.audio, text: text });
             }
 
-            // اگر چیزی پیدا نشد، لیست قبلی دست نخورد
             if (records.length === 0) {
                 if (input) input.value = "";
                 return { items: [], stats: stats };
@@ -118,37 +114,6 @@
             return { items: toItems(records), stats: stats };
         },
 
-            const records = [];
-            for (const [dir, g] of groups) {
-                if (!g.audio || !g.txt) continue;
-                records.push({
-                    dir: dir,
-                    title: dir.split('/').pop(),
-                    audio: g.audio,
-                    text: await g.txt.text()
-                });
-            }
-
-            // اگر چیزی پیدا نشد، لیست قبلی دست نخورد
-            if (records.length === 0) {
-                if (input) input.value = "";
-                return [];
-            }
-
-            try {
-                if (navigator.storage && navigator.storage.persist) {
-                    await navigator.storage.persist();
-                }
-                await replaceAll(records);
-            } catch (e) {
-                console.warn('ذخیره در IndexedDB ناموفق بود:', e);
-            }
-
-            if (input) input.value = ""; // اجازه‌ی انتخاب دوباره‌ی همان پوشه
-            return toItems(records);
-        },
-
-        // سخنرانی‌های ذخیره‌شده‌ی قبلی را برمی‌گرداند
         loadSaved: async function () {
             try {
                 return toItems(await getAll());
