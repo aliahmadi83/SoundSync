@@ -54,17 +54,28 @@
             objectUrls.push(url);
             return { title: r.title, audioUrl: url, text: r.text };
         });
+            // خواندن txt با تشخیص انکدینگ (UTF-8، UTF-16، ویندوز-۱۲۵۶)
+    async function decodeText(file) {
+        const buf = await file.arrayBuffer();
+        const b = new Uint8Array(buf);
+        if (b[0] === 0xFF && b[1] === 0xFE) return new TextDecoder('utf-16le').decode(buf);
+        if (b[0] === 0xFE && b[1] === 0xFF) return new TextDecoder('utf-16be').decode(buf);
+        let s = new TextDecoder('utf-8').decode(buf);
+        if (s.includes('\uFFFD')) {
+            try { s = new TextDecoder('windows-1256').decode(buf); } catch (e) { }
+        }
+        return s;
+    }
     }
 
     window.lectureSync = {
         dotNetRef: null,
 
         // پوشه‌ی اصلی انتخاب‌شده را می‌خواند، در IndexedDB ذخیره می‌کند (جایگزین قبلی‌ها)
-        readFolder: async function (inputId) {
+               readFolder: async function (inputId) {
             const input = document.getElementById(inputId);
             const files = Array.from((input && input.files) || []);
 
-            // گروه‌بندی فایل‌ها بر اساس زیرپوشه
             const groups = new Map();
             for (const f of files) {
                 const parts = (f.webkitRelativePath || f.name).split('/');
@@ -73,9 +84,39 @@
                 if (!groups.has(dir)) groups.set(dir, { audio: null, txt: null });
                 const g = groups.get(dir);
                 const name = f.name.toLowerCase();
-                if (name.endsWith('.mp3') && !g.audio) g.audio = f;
+                if (/\.(mp3|m4a|wav|ogg|aac)$/.test(name) && !g.audio) g.audio = f;
                 else if (name.endsWith('.txt') && !g.txt) g.txt = f;
             }
+
+            const stats = { totalFiles: files.length, dirs: groups.size, withAudio: 0, withText: 0, sample: "" };
+            const records = [];
+            for (const [dir, g] of groups) {
+                if (g.audio) stats.withAudio++;
+                if (g.txt) stats.withText++;
+                if (!g.audio || !g.txt) continue;
+                const text = await decodeText(g.txt);
+                if (!stats.sample) stats.sample = text.slice(0, 80);
+                records.push({ dir: dir, title: dir.split('/').pop(), audio: g.audio, text: text });
+            }
+
+            // اگر چیزی پیدا نشد، لیست قبلی دست نخورد
+            if (records.length === 0) {
+                if (input) input.value = "";
+                return { items: [], stats: stats };
+            }
+
+            try {
+                if (navigator.storage && navigator.storage.persist) {
+                    await navigator.storage.persist();
+                }
+                await replaceAll(records);
+            } catch (e) {
+                console.warn('ذخیره در IndexedDB ناموفق بود:', e);
+            }
+
+            if (input) input.value = "";
+            return { items: toItems(records), stats: stats };
+        },
 
             const records = [];
             for (const [dir, g] of groups) {
