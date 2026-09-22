@@ -64,7 +64,7 @@
 
 @code {
     private static readonly Regex LineRegex = new(
-        @"^\[\s*(\d{1,2}(?::\d{2}){1,2})\s*-\s*(\d{1,2}(?::\d{2}){1,2})\s*\]\s*(.*)$",
+        @"^\[?\s*(\d{1,2}(?::\d{2}){1,2}(?:[.,]\d+)?)\s*(?:-->|-|–|—|→|تا)\s*(\d{1,2}(?::\d{2}){1,2}(?:[.,]\d+)?)\s*\]?\s*(.*)$",
         RegexOptions.Compiled);
 
     private readonly Dictionary<string, object> folderAttrs = new()
@@ -94,7 +94,6 @@
         {
             await JS.InvokeVoidAsync("lectureSync.initTimeUpdate", "audioPlayer", dotNetRef);
 
-            // اول سخنرانی‌های ذخیره‌شده؛ اگر نبود، فایل نمونه
             var restored = await RestoreSavedLectures();
             if (!restored) await TryLoadSampleLecture();
         }
@@ -158,7 +157,7 @@
     }
 
     // --- انتخاب پوشه‌ی اصلی ---
-       private async Task OnFolderSelected(InputFileChangeEventArgs e)
+    private async Task OnFolderSelected(InputFileChangeEventArgs e)
     {
         isLoading = true;
         SetStatus("در حال خواندن و ذخیره‌ی پوشه‌ها...", false);
@@ -209,25 +208,62 @@
     {
         var result = new List<Segment>();
         int id = 0;
+        double start = 0, end = 0;
+        var sb = new System.Text.StringBuilder();
+        bool open = false;
+
+        void Flush()
+        {
+            if (!open) return;
+            var t = sb.ToString().Trim();
+            if (t.Length > 0) result.Add(new Segment(id++, start, end, t));
+            sb.Clear();
+            open = false;
+        }
+
         foreach (var raw in text.Replace("\r\n", "\n").Split('\n'))
         {
-            var line = raw.Trim().TrimStart('\uFEFF');
+            var line = raw.Trim().TrimStart('\uFEFF').Trim();
             if (line.Length == 0) continue;
+
             var m = LineRegex.Match(line);
-            if (!m.Success) continue;
-            result.Add(new Segment(id++,
-                ParseTimeToSeconds(m.Groups[1].Value),
-                ParseTimeToSeconds(m.Groups[2].Value),
-                m.Groups[3].Value.Trim()));
+            if (m.Success)
+            {
+                Flush();
+                start = ParseTimeToSeconds(m.Groups[1].Value);
+                end = ParseTimeToSeconds(m.Groups[2].Value);
+                sb.Append(m.Groups[3].Value);
+                open = true;
+            }
+            else if (open)
+            {
+                if (sb.Length > 0) sb.Append(' ');
+                sb.Append(line);
+            }
         }
+        Flush();
         return result;
     }
 
     private static double ParseTimeToSeconds(string t)
     {
+        t = NormalizeDigits(t).Replace(',', '.');
         double seconds = 0;
-        foreach (var part in t.Split(':')) seconds = seconds * 60 + int.Parse(part);
+        foreach (var part in t.Split(':'))
+            seconds = seconds * 60 + double.Parse(part, System.Globalization.CultureInfo.InvariantCulture);
         return seconds;
+    }
+
+    private static string NormalizeDigits(string s)
+    {
+        var sb = new System.Text.StringBuilder(s.Length);
+        foreach (var c in s)
+        {
+            if (c >= '۰' && c <= '۹') sb.Append((char)('0' + (c - '۰')));
+            else if (c >= '٠' && c <= '٩') sb.Append((char)('0' + (c - '٠')));
+            else sb.Append(c);
+        }
+        return sb.ToString();
     }
 
     private async Task OnSegmentClick(Segment s)
@@ -263,7 +299,7 @@
     private record Segment(int Id, double Start, double End, string Text);
     private record Lecture(int Id, string Title, string AudioUrl, List<Segment> Segments);
 
-       private class FolderLecture
+    private class FolderLecture
     {
         public string Title { get; set; } = "";
         public string? AudioUrl { get; set; }
